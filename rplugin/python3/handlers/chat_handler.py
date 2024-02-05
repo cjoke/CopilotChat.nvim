@@ -200,7 +200,8 @@ SYSTEM PROMPT: {num_system_tokens} Tokens
             if self.copilot.github_token is None:
                 req = self.copilot.request_auth()
                 self.nvim.out_write(
-                    f"Please visit {req['verification_uri']} and enter the code {req['user_code']}\n"
+                    f"Please visit {req['verification_uri']
+                                    } and enter the code {req['user_code']}\n"
                 )
                 current_time = time.time()
                 wait_until = current_time + req["expires_in"]
@@ -212,10 +213,21 @@ SYSTEM PROMPT: {num_system_tokens} Tokens
                         return
                 self.nvim.out_write("Successfully authenticated with Copilot\n")
             self.copilot.authenticate()
-
+        buffer = ""
         for token in self.copilot.ask(
             system_prompt, prompt, code, language=cast(str, file_type), model=model
         ):
+            buffer += token
+            # Look for the last newline in buffer
+            last_newline = buffer.rfind("\n")
+            # If there is no newline, then continue
+            if last_newline == -1:
+                continue
+            # If there is a newline, take everything in front of it and set that as the token
+            token = buffer[: last_newline + 1]
+
+            # Remove the token and newline from the buffer
+            buffer = buffer.replace(token, "")
             self.nvim.exec_lua(
                 'require("CopilotChat.utils").log_info(...)', f"Token: {token}"
             )
@@ -229,8 +241,20 @@ SYSTEM PROMPT: {num_system_tokens} Tokens
                 last_line_col,
                 last_line_row,
                 last_line_col,
-                token.split("\n"),
+                [tok.encode('utf-8') for tok in token.split("\n")],
             )
+
+        buffer_lines = cast(list[str], self.buffer.lines())
+        last_line_row = len(buffer_lines) - 1
+        last_line_col = len(buffer_lines[-1])
+        self.nvim.api.buf_set_text(
+            self.buffer.number,
+            last_line_row,
+            last_line_col,
+            last_line_row,
+            last_line_col,
+            [tok.encode('utf-8') for tok in buffer.split("\n")],
+        )
 
     def _add_end_separator(self, model: str, no_annoyance: bool = False):
         current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
